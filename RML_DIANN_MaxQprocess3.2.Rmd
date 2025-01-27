@@ -27,9 +27,6 @@ params:
     Volcanoparams: null
     HMsignifparams: null
     HMAnova: null
-output: 
-  word_document: 
-    reference_docx: H:/systemes/R script/Fiche_CompteRendu_LFQ_v5.docx
 editor_options: 
   chunk_output_type: inline
 ---
