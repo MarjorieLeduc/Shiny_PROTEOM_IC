@@ -2,7 +2,7 @@
 Make descriptive and statistical analysis using DIA-NN or Maxquant output and generate word and excel reports with PCA, heatmaps, volcanoplots...
 
 # Content
-DIANN_MaxQ_process.rmd analyses data from Maxquant or DIA-NN softwares and generates 4 files :
+RML_shiny_PROTEOMIC_2.9.R analyses data from Maxquant or DIA-NN softwares and generates 4 files :
 - a Word file containing report with many plots including PCA, heatmaps, volcanoplot ...
 - a Excel file containing protein quantifications, student tests results and number of peptides per proteins.
 - a txt file containing the same data as the Excel file
@@ -13,7 +13,7 @@ R4.4.0 or higher
 RStudio 2024.04.1 Build 748 or higher
 
 ## Required data
-To use DIANN_MaxQ_process.rmd,
+To use RML_shiny_PROTEOMIC_2.9.R,
 
 For DIA-NN analysis, folder must contain :
 - report.pg_matrix.tsv.txt
@@ -23,7 +23,7 @@ For DIA-NN analysis, folder must contain :
 
 (the Script is done for .d DIA files from Bruker)
 
-(.d names files must not contain spaces, or "-" or ".")
+(.d names files must not contain ".")
 
 (In the spectral library, the contaminant proteins' accessions should be preceded by "Conta_" to be detected as Contaminant)
 
@@ -39,4 +39,4 @@ For Maxquant analysis, folder must contain :
 
 
 ## Use
-In RStudio, open the DIANN_MaxQ_process_2.4.rmd file, click on Knit and follow tutorial. Think to check, only for the first time, if you have all packages.
+In RStudio, open the RML_shiny_PROTEOMIC_2.9.R file, click on "Run app" and follow idication in "Data" sheets. Think to check, only for the first time, if you have all packages.
