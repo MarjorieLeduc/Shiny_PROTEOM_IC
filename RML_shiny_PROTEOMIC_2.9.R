@@ -911,7 +911,7 @@ server <- function(input, output, session) {
       Value<-"LFQ intensity "
     }else{
       Label<-"3. Enter the regular expression to extract Sample names"
-      Value<-"^.{10,14}_[^_]{0,12}_(.*)_.*_.*_.*_.*$"
+      Value<-"(.*)"
     }
     updateTextInput(session, "MyRegEx", 
                     label=Label, 
