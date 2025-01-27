@@ -6,7 +6,7 @@ RML_shiny_PROTEOMIC_2.9.R analyses data from Maxquant or DIA-NN softwares and ge
 - a Word file containing report with many plots including PCA, heatmaps, volcanoplot ...
 - a Excel file containing protein quantifications, student tests results and number of peptides per proteins.
 - a txt file containing the same data as the Excel file
-- a .rds file that can be use with shiny_PROTEOMIC.R script to custom plots.
+- a .rds file that can be use with Shiny_PROTEOM_IC_viewer script to custom plots.
 
 ## Requirements
 R4.4.0 or higher
