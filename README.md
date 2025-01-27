@@ -1,4 +1,4 @@
-# DIANN_MaxQ_process
+# RML_shiny_PROTEOMIC_2.9.R
 Make descriptive and statistical analysis using DIA-NN or Maxquant output and generate word and excel reports with PCA, heatmaps, volcanoplots...
 
 # Content
