@@ -19,7 +19,7 @@ For DIA-NN analysis, folder must contain :
 - report.pg_matrix.tsv.txt
 - report.log.txt
 - report.pr_matrix.tsv
-- report.tsv
+- report.parquet or report.tsv
 
 (the Script is done for .d DIA files from Bruker)
 
