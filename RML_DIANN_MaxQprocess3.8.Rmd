@@ -1,0 +1,1039 @@
+---
+date: "`r paste0('Date: ',format(Sys.time(), '%a %d %b %Y'))`"
+params:
+    MyFile: null
+    MySoft: null
+    df: null
+    GraphConta: null
+    GraphTop5: null
+    GraphNbProt: null
+    GraphMissCleavages: null
+    GraphPrecNorm: null
+    GraphEuclid: null
+    GraphEuclidBox: null
+    GraphPearson: null
+    GraphPearsonBox: null
+    GraphLog2: null
+    MyTableSignif: null
+    MyTableApDis: null
+    GraphPval: null
+    GraphFC: null
+    edata: null
+    fdata: null
+    MyImputeMeth: null
+    phenodata: null
+    MyRegEx: null
+    Pepdata: null
+    PCAparams: null
+    MyStat: null
+    Ttestparams: null
+    Volcanoparams: null
+    HMsignifparams: null
+    MyListeProtAnova: null
+    HMAnova: null
+output: 
+  word_document: 
+    reference_docx: H:/systemes/R script/Fiche_CompteRendu_LFQ_v5.docx
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=F,warning=FALSE}
+
+library(rmarkdown)
+library(tinytex)
+library(rstudioapi)
+library(dplyr)
+library(imputeLCMD)
+library(ggrepel)
+library(RColorBrewer)
+library(pheatmap)
+library(stringr)
+library(reshape2)
+library(gtools)
+library(knitr)
+library(tcltk)
+library(writexl)
+library(ggplot2)
+library(scales)
+library(ggalt)
+library(data.table)
+library(tidyr)
+library(arrow)
+knitr::opts_chunk$set(eval=T, echo = F, warning = F, message = F,
+                      dev =c("png","svg"),
+                      dpi=500)
+```
+
+```{r DataImport, results=FALSE}
+MyFile<-params$MyFile
+knitr::opts_chunk$set(fig.path = paste0(dirname(MyFile),"/svg/"))
+
+MySoft<-params$MySoft
+df<-params$df
+
+#Find project name
+  x<-dirname(MyFile)
+  x<-gsub(pattern="/txt",replacement="",x)
+  x<-gsub(pattern="/combined",replacement="",x)
+  x<-unlist(strsplit(x, split = "/",fixed=TRUE))
+  ProjectName<-x[length(x)]
+
+phenodata<-params$phenodata
+
+MyConta<-df[df$Potential.contaminant == '+' & !is.na(df$Potential.contaminant),]
+
+edata<-params$edata
+fdata<-params$fdata
+```
+
+
+
+# Project Name: `r ProjectName`    
+# Objective :  
+  
+# 1. Experimental Design  
+ 
+```{r Sample_characteristics_kbl}
+MyPhenodata<-data.frame(Sample = phenodata[,1] ,Condition=phenodata[,2])
+kable(MyPhenodata, "simple")
+
+if(MySoft=="MaxQ"){
+  
+  Mylog<-read.delim(paste0(dirname(MyFile),"/mqpar.xml"),sep="\t")
+  
+  #Find fasta database
+  MyFasta<-Mylog[str_detect(Mylog[,1],"<fastaFilePath>")==TRUE ,][1]
+  MyFasta<-str_extract(string=MyFasta,
+                       pattern="         <fastaFilePath>(.*)</fastaFilePath>",
+                       group=1)
+  MyFasta<-gsub("\\\\","/",MyFasta)
+  
+  #Find Maxquant version
+  MyVersion<-Mylog[str_detect(Mylog[,1],"<maxQuantVersion>")==TRUE ,][1]
+  MyVersion<-str_extract(string=MyVersion,
+                         pattern="   <maxQuantVersion>(.*)</maxQuantVersion>",
+                         group=1)
+  
+  #Find enzyme
+  MyEnzyme<-Mylog[which(str_detect(Mylog[,1],"<enzymes>"))+1,][1]
+  MyEnzyme<-str_extract(string=MyEnzyme,
+                        pattern="            <string>(.*)</string>",
+                        group=1)
+  
+  
+  #Find number of missed cleavages
+  MyMissCleavage<-Mylog[str_detect(Mylog[,1],"<maxMissedCleavages>")==TRUE ,][1]
+  MyMissCleavage<-str_extract(string=MyMissCleavage,
+                              pattern="         <maxMissedCleavages>(.*)</maxMissedCleavages>",
+                              group=1)
+  
+  #Find variable modifications
+  MyVarMPT<-(which(str_detect(Mylog[,1],"<variableModifications>"))+1):(which(str_detect(Mylog[,1],"</variableModifications>"))-1)
+  MyVarMPT<-Mylog[MyVarMPT,]
+  MyVarMPT<-str_extract(string=MyVarMPT,
+                        pattern="            <string>(.*)</string>",
+                        group=1)
+  MyVarMPT<-paste(MyVarMPT,collapse=" ; ")
+  
+  #Find fixed modifications
+  MyFixMPT<-(which(str_detect(Mylog[,1],"<fixedModifications>"))+1):(which(str_detect(Mylog[,1],"</fixedModifications>"))-1)
+  MyFixMPT<-Mylog[MyFixMPT,]
+  MyFixMPT<-str_extract(string=MyFixMPT, 
+                        pattern="            <string>(.*)</string>",
+                        group=1)
+  MyFixMPT<-paste(MyFixMPT,collapse=" ; ")
+  
+  #Find if there was normalisation
+  MyNorm<-Mylog[str_detect(Mylog[,1],"<lfqSkipNorm>")==TRUE|str_detect(Mylog[,1],"<lfqNormType>")==TRUE ,]
+  MyNorm<-if(str_detect(MyNorm,"False")==TRUE|str_detect(MyNorm,"1")==TRUE){"YES"}else{"NO"}
+  
+  
+  #Find if there was Match between run
+  MyMBR<-Mylog[str_detect(Mylog[,1],"<matchBetweenRuns>")==TRUE ,]
+  MyMBR<-if(str_detect(MyMBR,"True")==TRUE){"YES"}else{"NO"}
+  
+  #Find Mass spectrometer
+  MyMS<-Mylog[str_detect(Mylog[,1],"\\.d</string>")==TRUE ,]
+  MyMS<-if(length(MyMS)>0){"TIMS-TOF"}else{"Orbitrap"}
+  
+  #FInd time of LC
+  MyEvidence<-fread(paste0(dirname(MyFile),"/evidence.txt"),select="Retention time")
+  MyTpsLC<-round(max(as.numeric(MyEvidence$`Retention time`,na.rm = TRUE))/60,0)
+  
+  #Find number of fractions
+  MyNbFraction<-(which(str_detect(Mylog[,1],"<fractions>"))+1):(which(str_detect(Mylog[,1],"</fractions>"))-1)
+  MyNbFraction<-Mylog[MyNbFraction,]
+  MyNbFraction<-str_extract(string=MyNbFraction, 
+                        pattern="      <short>(.*)</short>",
+                        group=1)
+  MyNbFraction<-max(as.numeric(MyNbFraction))
+  if(MyNbFraction==32767){MyNbFraction<-1}
+  MyTpsLC<-paste0(MyTpsLC,"h x",MyNbFraction)
+  
+  
+  #Find folder
+    MyDir<-gsub("\\\\","\\/",MyFile)
+  
+  #Find time of analysis
+    if (file.exists(paste0(dirname(MyFile),"/#runningTimes.txt"))==TRUE){
+      MyTime<-read.delim(paste0(dirname(MyFile),"/#runningTimes.txt"),sep="\t",na.strings = "NA",header = T)
+      MyTime<-gsub(",",".",MyTime[,2])
+      MyTime<-sum(as.numeric(MyTime),na.rm = TRUE)
+      h<-MyTime/60
+      j<-h/24
+      s<-j/7
+      m<-j/30
+      x<-data.frame(nom=c("h","days","weeks","months"),val=c(h,j,s,m))
+      x<-x[which(x$val>=1),]
+      x<-x[which(x$val==min(x$val)),]
+      MyTime<-paste(round(x$val,1),x$nom)
+    }else{
+      MyTime<-""
+    }
+    
+  #Find threads
+  MyThreads<-Mylog[str_detect(Mylog[,1],"<numThreads>")==TRUE ,]
+  MyThreads<-str_extract(string=MyThreads, 
+                         pattern="   <numThreads>(.*)</numThreads>",
+                         group=1)
+  MyTime<-paste0(MyTime," (",MyThreads," threads)")
+
+}else{
+  #Find spectral data base
+  Mylog<-read.delim(paste0(dirname(MyFile),"/report.log.txt"),sep="\t")
+  MySpectralLib<-Mylog[str_detect(Mylog[,1],"Loading spectral library")==TRUE ,][1]
+  MySpectralLib<-str_sub(MySpectralLib,33,nchar(MySpectralLib))
+  MySpectralLib2<-gsub("\\\\","/",MySpectralLib)
+  
+  #Find if there is normalisation
+ MyNorm<-if(length(Mylog[str_detect(Mylog[,1],"--no-norm")==TRUE ,])>0){
+            "NO"
+          }else if(length(Mylog[str_detect(Mylog[,1],"--global-norm"),])>0){
+              "Global normalisation"
+          }else{
+              "RT dependant normalisation"
+          }
+  
+  #Find if there is Match between runs
+  MyMBR<-Mylog[str_detect(Mylog[,1],"Second pass")==TRUE ,]
+  MyMBR<-if(length(MyMBR)>0){"YES"}else{"NO"}
+  
+  #Find fasta data base
+  MyFasta<-Mylog[str_detect(Mylog[,1],".fasta")==TRUE ,][1]
+  MyFasta<-str_sub(MyFasta,53,nchar(MyFasta))
+  MyFasta<-gsub("\\\\","/",MyFasta)
+  
+  #Find Mass spectrometer
+  MyMS<-Mylog[str_detect(Mylog[,1],".d")==TRUE ,]
+  MyMS<-if(length(MyMS)>0){"TIMS-TOF"}else{""}
+  
+  #Find version of DIA-NN
+  MyVersion<-colnames(Mylog)
+  x<-strsplit(MyVersion, split = "..",fixed=TRUE)
+  MyVersion<-x[[1]][1]
+  MyVersion<-str_sub(MyVersion,8,nchar(MyVersion))
+  MyVersion<-paste("DIA-NN",MyVersion)
+  
+  #Find time of Liquid chromatography
+  if(file.exists(paste0(dirname(MyFile),"/report.parquet"))){
+      MyReport<- read_parquet(paste0(dirname(MyFile),"/report.parquet"),col_select="RT")
+  }else{
+      MyReport<- fread(paste0(dirname(MyFile),"/report.tsv"),select="RT")
+  }
+
+  MyTpsLC<-MyReport
+  MyTpsLC<-paste0(round(max(MyTpsLC)/60,0),"h")
+
+  if(file.exists(gsub(".predicted.speclib", ".log.txt", MySpectralLib))==TRUE){
+    #Find variables MPTs
+    Mylogfasta<-read.delim(gsub(".predicted.speclib", ".log.txt", MySpectralLib),
+                         sep="\t",
+                         na.strings = "NA",
+                         header = T)
+    MyExe<-Mylogfasta[str_detect(Mylogfasta[,1],"diann.exe")==TRUE,]
+    MyExe<-strsplit(MyExe, split = " ")[[1]]
+    
+    MyVarMPTstart<-match("--var-mod",MyExe)+1
+    if(!is.na(MyVarMPTstart)){
+      x<-str_detect(MyExe[(MyVarMPTstart):length(MyExe)],"--")
+      x<-first(match(TRUE,x))-2
+      MyVarMPT<-MyExe[(MyVarMPTstart):(MyVarMPTstart+x)]
+      MyVarMPT<-paste(MyVarMPT,collapse=" ; ")
+    }else{MyVarMPT<-""}
+    
+    #Find fixed MPTs
+    MyFixMPTstart<-match("--fixed-mod",MyExe)+1
+    if(!is.na(MyFixMPTstart)){
+      x<-str_detect(MyExe[(MyFixMPTstart):length(MyExe)],"--")
+      x<-first(match(TRUE,x))-2
+      MyFixMPT<-MyExe[(MyFixMPTstart):(MyFixMPTstart+x)]
+      MyFixMPT<-paste(MyFixMPT,collapse=" ; ")
+    }else{MyFixMPT<-""}
+    
+    if(any(MyExe=="--unimod4")){
+      MyFixMPT<-if(nchar(MyFixMPT)>0){
+        paste(MyFixMPT,"Carbamidomethylation (C)",sep=" ; ")
+      }else{
+          "Carbamidomethylation (C)"}
+    }
+    
+    #Find enzyme
+    MyEnzyme<-MyExe[(match("--cut",MyExe)+1)]
+    MyEnzyme<-gsub("\\*","\\\\*",MyEnzyme)
+    MyEnzyme<-gsub("\\|","\\\\|",MyEnzyme)
+    
+    #Find MissCleavage
+    MyMissCleavage<-MyExe[(match("--missed-cleavages",MyExe)+1)]
+    MyMissCleavage<-gsub("\\*","\\\\*",MyMissCleavage)
+    MyMissCleavage<-gsub("\\|","\\\\|",MyMissCleavage)
+  }else{
+      MyVarMPT<-""
+      MyFixMPT<-""
+      MyEnzyme<-""
+      MyMissCleavage<-""
+  }
+  
+  #Find folder
+  MyDir<-gsub("\\\\","\\/",MyFile)
+  
+  #Find time of analysis
+  MyTime<-Mylog[str_detect(Mylog[,1],"[.*]")==TRUE ,]
+  MyTime<-MyTime[length(MyTime)]
+  MyTime<-str_extract(MyTime,"\\[.*\\]")
+  MyTime<-str_sub(MyTime,2,nchar(MyTime)-1)
+  MyTime<-as.numeric(str_split(MyTime,":")[[1]][1])
+  h<-MyTime/60
+  j<-h/24
+  s<-j/7
+  m<-j/30
+  x<-data.frame(nom=c("h","days","weeks","months"),val=c(h,j,s,m))
+  x<-x[which(x$val>=1),]
+  x<-x[which(x$val==min(x$val)),]
+  MyTime<-paste(round(x$val,1),x$nom)
+  
+  
+  #Find number of threads
+  MyThreads<-Mylog[str_detect(Mylog[,1],"--threads")==TRUE ,]
+  MyThreads<-strsplit(MyThreads, split = " ")[[1]]
+  MyThreads<-MyThreads[which(MyThreads=="--threads")+1]
+  MyTime<-paste0(MyTime," (",MyThreads," threads)")
+}
+```
+
+Mass spectrometer : **`r MyMS`**    
+Time of chromatography : **`r MyTpsLC`**  
+Type of fragmentation : **`r if(MyMS=="TIMS-TOF"){"CID"}else{"HCD"}`**  
+Software of identification and quantification : **`r MyVersion`**  
+Spectral library :   
+**`r if(MySoft=="DIANN"){MySpectralLib2}`**  
+Fasta file :   
+**`r MyFasta`**  
+Variable modifications : **`r MyVarMPT`**  
+Fixed modifications : **`r MyFixMPT`**  
+Enzyme : **`r MyEnzyme`**  
+Miss Cleavage : **`r MyMissCleavage`**  
+Normalization : **`r MyNorm`**  
+Match between runs : **`r MyMBR`**  
+File name :  
+**`r MyDir`**  
+Time of analysis : **`r MyTime`**    
+  
+
+  
+# 2. Exploratory analysis
+## 2.1 ProfilPlots  
+
+```{r ProfilPlots,fig.width=8}
+
+  fdataWITHconta <- df[,1:6]
+  x <- df[,7:length(colnames(df))]
+  x$Prot<-row.names(x)
+  x<-reshape(x,
+             idvar="Prot",
+             varying = colnames(x)[1:(ncol(x)-1)],
+             times= colnames(x)[1:(ncol(x)-1)], 
+             direction = "long",
+             v.name="Intensity")
+    colnames(x)[2]<-"Sample"
+
+#annotation of contaminant proteins, BSA and Trypsin
+  Myfdata<-data.frame(RowNamesfdata=row.names(fdataWITHconta),
+                      ProteinGroup=fdataWITHconta$Protein.Group,
+                      Genes=fdataWITHconta$Genes,
+                      Contaminant=fdataWITHconta$Potential.contaminant)
+  Myfdata$Type<-"Other"
+  Myfdata[Myfdata$Contaminant=="+","Type"]<-"Contaminant"
+  Myfdata[str_detect(Myfdata$ProteinGroup,"P00761")==TRUE,"Type"]<-"Trypsin" 
+  Myfdata[str_detect(Myfdata$ProteinGroup,"P02769")==TRUE,"Type"]<-"BSA"
+  
+  x<-merge(x,Myfdata,by.x="Prot",by.y="RowNamesfdata",all.x=TRUE)
+  x<-x[order(x$Type,decreasing=TRUE),]
+   
+  if(any(str_detect(x$Type,"Trypsin"))==TRUE){
+  MyTrypsin<-x[str_detect(x$Type,"Trypsin")==TRUE,]
+  MyAllOther<-x[str_detect(x$Type,"Trypsin")==FALSE,]
+  x<-rbind(MyAllOther,MyTrypsin)
+  }
+  
+  level_orderX <- factor(x$Sample, level = phenodata$ShortName)
+  level_orderProt<-factor(x$Prot, level = unique(x$Prot))
+  
+  OrderType<-rev(unique(x$Type))
+  TypeProt<-factor(x$Type,level=OrderType)
+  
+  MyColors<-OrderType
+  MyColors[MyColors=="BSA"]<-"#008000"
+  MyColors[MyColors=="Contaminant"]<-"black"
+  MyColors[MyColors=="Other"]<-"grey"
+  MyColors[MyColors=="Trypsin"]<-"#FF0080"
+  
+  MySize<-OrderType
+  MySize[MySize!="Other"]<-1
+  MySize[MySize=="Other"]<-0.5
+  MySize<-as.numeric(MySize)
+  
+
+ggplot(x, aes(x =  level_orderX, y = Intensity, group = level_orderProt,size = TypeProt,color=TypeProt)) + 
+  geom_line()+
+  scale_size_manual(values = MySize) +
+  scale_colour_manual(values = MyColors)+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90,hjust=1,vjust=0.25),
+        axis.title.x = element_blank())+
+  ggtitle("Profilplot of Intensity per proteins (Contaminants)") 
+
+
+#Profilplot without contaminants
+#Filter Contaminant
+x<-x[x$Type=="Other",]
+
+#Find Top5 of proteins
+MyMaxLFQ<-tapply(x$Intensity, x$Prot, function(x){max(x,na.rm=TRUE)})
+MyMaxLFQ<-as.data.frame(MyMaxLFQ)
+MyTOP5<-row.names(top_n(MyMaxLFQ,n=5))
+
+ExtractFirstAccession <- function(x){
+   FirstAccession<-strsplit(x, split = ";") [[1]][1]
+   return(FirstAccession)
+ }
+
+MyAnnotation<-distinct(x[which(x$Prot==MyTOP5),c("Prot","ProteinGroup","Genes")])
+MyAnnotation$Accession <-as.character(lapply(MyAnnotation$ProteinGroup,ExtractFirstAccession))
+MyAnnotation$Gene<-as.character(lapply(MyAnnotation$Genes,ExtractFirstAccession))
+
+for(i in 1:5){
+  x[x$Prot==MyTOP5[i],"Type"]<-paste(MyAnnotation$Accession[i],MyAnnotation$Gene[i])
+}
+
+#plot
+  x<-x[order(x$Type),]
+   
+  MyOtherrows<-x[str_detect(x$Type,"Other")==TRUE,]
+  MyTOP5rows<-x[str_detect(x$Type,"Other")==FALSE,]
+  x<-rbind(MyOtherrows,MyTOP5rows)
+
+
+  level_orderX <- factor(x$Sample, level = phenodata$ShortName)
+  level_orderProt<-factor(x$Prot, level = unique(x$Prot))
+  
+  OrderType<-rev(unique(x$Type))
+  TypeProt<-factor(x$Type,level=OrderType)
+  
+  MyColors<-OrderType
+  for(i in 1:5){
+      MyColors[MyColors==OrderType[i]]<-hue_pal()(5)[i]
+  }
+  MyColors[MyColors=="Other"]<-"grey"
+
+  
+  MySize<-OrderType
+  MySize[MySize!="Other"]<-1
+  MySize[MySize=="Other"]<-0.5
+  MySize<-as.numeric(MySize)
+  
+
+ggplot(x, aes(x =  level_orderX, y = Intensity, group = level_orderProt, size = TypeProt, color=TypeProt)) + 
+  geom_line() +
+  scale_size_manual(values = MySize) +
+  scale_colour_manual(values = MyColors) +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90,hjust=1,vjust=0.25),
+        axis.title.x = element_blank()) +
+  ggtitle("Profilplot of LFQ intensity per proteins (TOP5 without Contaminants)") 
+
+rm(x,Myfdata,MyAllOther,MyAnnotation,MyMaxLFQ,MyOtherrows,MyTOP5rows,MyTrypsin,level_orderProt,level_orderX,MyColors,MySize,MyTOP5,OrderType,TypeProt,i) 
+
+```
+  
+## 2.2 Number of protein and missing values per sample  
+**`r nrow(MyConta)+nrow(edata)`** identified proteins.  
+**`r nrow(MyConta)`** suppressed contaminants.  
+**`r nrow(edata)`** remaining proteins.  
+
+```{r NbProteins, results='asis'}
+
+params$GraphNbProt
+
+NbProt <- colSums(!is.na(edata))
+    
+x <- data.frame(Sample=colnames(edata),
+                NbProt=NbProt)
+kable(x, "simple",row.names=FALSE)
+
+```
+  
+## 2.3 Percentage of missed cleavages per sample  
+```{r NbMissedCleavage, results='asis'}
+
+params$GraphMissCleavages
+
+
+```
+  
+## 2.4 Normalisation  
+```{r PrecNorm, results='asis'}
+if(MySoft=="DIANN"){
+  params$GraphPrecNorm
+}
+
+```
+      
+```{r PCAprepare,fig.keep = "none",results=FALSE}
+
+
+    FilterGroup <- function(data, MinPc,type=c("1Group","EachGroup","Total")) {
+      ValidProt<-rep(NA,nrow(data))
+      
+      
+      if(type=="Total"){
+        ValidProt<-100*rowSums(!is.na(edata))/ncol(edata)
+        ValidProt<-ValidProt>=MinPc
+      }else{
+        for(i in 1:nrow(data)){
+          nbVV <- tapply(as.numeric(data[i,]),
+                         INDEX=phenodata[,"Condition"],
+                         FUN=complete.cases)#show TRUE FALSE Valid Values for each sample per group
+          nbVV <- lapply(nbVV,sum)#count number of Valid Values per group
+          
+          for(condition in levels(factor(phenodata[,"Condition"]))) {
+            nbVV[[condition]] <- nbVV[[condition]]/table(phenodata[,"Condition"])[[condition]]*100#%Valid Values per condition.
+          }
+          
+          if (type=="1Group"){
+            ValidProt[i] <- any(nbVV >= MinPc)#return TRUE if there is at least one group with 70% of valid values.
+          }else if(type=="EachGroup"){
+            ValidProt[i] <- !any(nbVV < MinPc)
+          }
+        }
+      }
+      return(ValidProt)
+    }
+    
+    if(params$PCAparams$FilterType=="% of Valid value in at least one group"){
+      MyType<-"1Group"
+    } else if (params$PCAparams$FilterType=="% of Valid value in each group"){
+      MyType<-"EachGroup"
+    } else if (params$PCAparams$FilterType=="% of Valid value in total"){
+      MyType<-"Total"
+    }
+    
+    DataToShow <-edata[FilterGroup(edata, MinPc = params$PCAparams$PcFilter,type=MyType),]
+    
+  
+  NbProtPCA<-paste(as.character(nrow(DataToShow)),"/",as.character(nrow(edata)),"proteins used for PCA.")
+  set.seed(1234)
+  DataToShow <- impute.MinProb(DataToShow,q = 0.01,tune.sigma =1)
+    
+    my.prc <-if(params$PCAparams$TypeDataPCA=="Z-score(intensity)"){
+      x<-colnames(DataToShow)
+      DataToShow <-t(apply(DataToShow,1,scale))
+      colnames(DataToShow)<-x  
+      prcomp(t(DataToShow) , center=F, scale=F)
+    }else if (params$PCAparams$TypeDataPCA=="Log2(intensity)"){
+      prcomp(t(DataToShow) , center=T, scale=F)
+    }
+    
+
+```
+## 2.5 Principal Componant Analysis  
+Log2(LFQ intensity) matrix were filtered before imputation (only proteins with at least 70% of valid values in at least one condition were kept), (**`r nrow(DataToShow)`/`r nrow(edata)`** remaining proteins).  
+Z-score were calculated after imputation.  
+<br>
+**PCA plot**  
+On this plot, the more samples are close, the more they are similar.  
+
+```{r PCA, fig.height=4.5,fig.width=7}
+
+    PCATitle <-paste("PCA", params$PCAparams$TypeDataPCA ,"of proteins with", params$PCAparams$PcFilter,params$PCAparams$FilterType)
+    
+    #PC1 versus PC2 colored by Condition
+    var_explained <- round(my.prc$sdev^2/sum(my.prc$sdev^2)*100,1)
+    
+    Conditions<-as.factor(phenodata$Condition)
+    MyColors<-levels(Conditions)
+    MyColors<-match(MyColors,phenodata$Condition)
+    MyColors<-phenodata$CondColor[MyColors]
+    
+    x<-as.data.frame(my.prc$x ) 
+    x$Sample<-rownames(x)
+    
+    ggplot(x,aes(x=PC1,y=PC2,color=Conditions)) +
+      geom_point(size=4) +
+      scale_colour_manual(values = MyColors)+
+      scale_fill_manual(values = MyColors)+
+      geom_text_repel(data = x,
+                      aes(label = Sample),
+                      nudge_y = 2,size=5,
+                      segment.size  = 0.5,
+                      force=1,
+                      max.overlaps = Inf)+
+      geom_encircle(
+        aes(group = Conditions,
+            fill = Conditions),
+        alpha = 0.1,
+        size = 2,
+        show.legend = FALSE,
+        na.rm = TRUE)+
+      theme_bw() +
+      labs(x=paste0("PC1: ",var_explained[1],"%"),
+           y=paste0("PC2: ",var_explained[2],"%")) +
+      theme(legend.position="right")+
+      ggtitle(PCATitle)
+
+    #PC1vsPC2 COlored By Replicate
+
+      Replicates<-as.factor(phenodata$Replicate)
+      MyColors<-levels(Replicates)
+      MyColors<-match(MyColors,phenodata$Replicate)
+      MyColors<-phenodata$RepColor[MyColors]
+
+      ggplot(x,aes(x=PC1,y=PC2,color=Replicates)) +
+      geom_point(size=4) +
+      scale_colour_manual(values = MyColors)+
+      scale_fill_manual(values = MyColors)+
+      geom_text_repel(data = x,
+                      aes(label = Sample),
+                      nudge_y = 2,size=5,
+                      segment.size  = 0.5,
+                      force=1,
+                      max.overlaps = Inf)+
+      geom_encircle(
+        aes(group = Replicates,
+            fill = Replicates),
+        alpha = 0.1,
+        size = 2,
+        show.legend = FALSE,
+        na.rm = TRUE)+
+      theme_bw() +
+      labs(x=paste0("PC1: ",var_explained[1],"%"),
+           y=paste0("PC2: ",var_explained[2],"%")) +
+      theme(legend.position="right")+
+      ggtitle(PCATitle)
+    
+```
+
+
+
+## 2.6 Euclidean Distance between samples  
+The more euclidean distance are small, the more samples are similar.  
+```{r SamplesEuclideanDist}
+params$GraphEuclid
+params$GraphEuclidBox
+
+```
+
+
+## 2.7 Pearson's correlation between samples  
+A Pearson's correlation near of 1 means that expression proteins of samples are very similar.  
+A Pearson's correlation near of 0 means that samples are uncorrelated.  
+A Pearson's correlation <0 (which is very unusual) means that samples are anti-correlated.  
+
+```{r SamplesPearsonCorrelation}
+params$GraphPearson
+params$GraphPearsonBox
+```
+
+
+## 2.8 Heatmap log2(LFQ)
+
+```{r HeatmapLog2Intensity}
+ params$GraphLog2
+```
+
+```{r Ttest}
+MyStat<-params$MyStat
+if(MyStat==TRUE){
+  StudWelch<-params$Ttestparams$StudWelch
+  TypeTtest<-params$Ttestparams$TypeTtest
+  MyPaired<-str_split(TypeTtest," ")[[1]][2]=="Paired"
+  
+  TestpcFilter<-params$Ttestparams$TestpcFilter
+  VVfilter<-params$Ttestparams$VVfilter
+  
+  ThreasholdType<-params$Ttestparams$ThreasholdType
+  SignifThreashold<-params$Ttestparams$SignifThreashold
+  FCThreashold<-params$Ttestparams$FCThreashold
+  MyComparison<-params$Ttestparams$MyComp
+}
+```
+  
+# 3. Differential expression 
+  
+**`r if(MyStat==TRUE){StudWelch}`** test **`r if(MyStat==TRUE){TypeTtest}`** were done on proteins showing at least **`r if(MyStat==TRUE){if(MyPaired==FALSE){paste(VVfilter,"valid values in each group and at least",TestpcFilter,"% of valid values in one condition")}else{paste(TestpcFilter,"% of paire of valid values")}}`** using log2(LFQ intensity).  
+Significant threshold is **`r if(MyStat==TRUE){paste(ThreasholdType,SignifThreashold, if(ThreasholdType=="Qvalue"){"(Benjamini-Hoechberg)"},if(FCThreashold!=1){paste0(", FC>", FCThreashold," or <",round(1/FCThreashold,2))})}`**.  
+
+
+## 3.1 Number of differential proteins  
+`r if(MyStat=="YES"){if(MySignifFC!=0){"(Next table take into account FC treshold.)"}}`  
+  
+```{r NbSignifProt, eval=MyStat}
+
+kable(params$MyTableSignif, "simple")
+
+```
+
+```{r NbAppearedAndDesappeared, eval=MyStat}
+kable(params$MyTableApDis, "simple")
+
+```
+  
+## 3.2 Histogram of P-Values 
+<br>  
+```{r HistogrammePval,fig.width=7, eval=MyStat}
+params$GraphPval
+
+```
+
+    
+## 3.3 Histogram of Fold change  
+```{r FoldChangeHistogramme, fig.width=7, eval=MyStat}
+params$GraphFC
+
+```
+  
+## 3.4 Volcanoplot 
+Proteins in red and blue are significantly differential.
+<br>          
+```{r Volcanoplot, fig.height=7, eval=MyStat}
+
+for(i in 1:length(MyComparison)){
+  
+  MyColNumber<-which(colnames(fdata)==paste("Pvalue",MyComparison[i]))
+  n<-if(ThreasholdType=="Pvalue"){0}else{1}
+
+    x<-fdata()[is.na(fdata[,MyColNumber])==FALSE,]
+    x<-x[,c(MyColNumber,MyColNumber+n,MyColNumber+2,8,5)]
+    x$Type<-params$Volcanoparams$NSColor
+    x[x[,2]<SignifThreashold & x[,3]>log2(FCThreashold),"Type"]<-params$Volcanoparams$UpColor
+    x[x[,2]<SignifThreashold & x[,3]<(-log2(FCThreashold)),"Type"]<-params$Volcanoparams$DownColor
+    x[,1]<--log10(x[,1])
+    colnames(x)<-gsub(pattern="\\s",replacement="_",x=colnames(x))
+    colnames(x)<-gsub(pattern="\\/",replacement="_",x=colnames(x))
+    
+    
+    
+    g<-ggplot(x,aes_string(x=colnames(x)[3],y=colnames(x)[1],color="Type",label="Gene_ProteinGroup")) +
+      geom_point(size=1) +
+      scale_colour_manual(values = levels(as.factor(x$Type)))+
+      geom_point(data=x[match(params$Volcanoparams$GenePoints,x$Gene_ProteinGroup),],
+                 color=params$Volcanoparams$PointColor,
+                 size=params$Volcanoparams$PointSize)+
+      geom_text_repel(data = x[match(params$Volcanoparams$sel_gene_nm,x$Gene_ProteinGroup),],
+                      aes_string(label = "Genes"),
+                      segment.size  = 0.5,
+                      force=params$Volcanoparams$Force,
+                      color = "black",
+                      max.overlaps = Inf)+
+      theme_bw(base_size=10) +
+      labs(x=paste0("Log2(",MyComparison[i],")"),
+           y="-log10(Pvalue)") +
+      theme(legend.position="none")+
+      ggtitle(paste("Volcano plot",MyComparison[i]))
+
+    if(params$Volcanoparams$ShowHline==TRUE){
+      
+      if(input$ThreasholdType=="Pvalue"){
+        MyThreashold<--log10(input$SignifThreashold)
+      }else{
+        MyThreashold<-max(x[x[,2]>input$SignifThreashold,1])
+      }
+      
+      g<-g+geom_hline(linetype=params$Volcanoparams$LineType,
+                      color=params$Volcanoparams$LineColor,
+                      yintercept=MyThreashold
+      )
+    }
+
+    if(params$Volcanoparams$ShowVline==TRUE){
+      g<-g+geom_vline(linetype=params$Volcanoparams$LineType,
+                      color=params$Volcanoparams$LineColor,
+                      xintercept=log2(FCThreashold)
+      )+
+        geom_vline(linetype=params$Volcanoparams$LineType,
+                   color=params$Volcanoparams$LineColor,
+                   xintercept=-log2(FCThreashold)
+        )
+    }
+    print(g)
+}
+
+```
+  
+## 3.5 Heatmaps Z-score(LFQ)  
+Z-scores of each protein correspond to their intensity less mean of all samples divide by their standard deviation. The more z-score is high, the more the protein is expressed in this sample compared to the others.
+<br>      
+```{r Heatmaps,fig.height=7, eval=MyStat, fig.keep = "none"}
+
+
+p<-list()
+# heights<-c()
+for (i in 1:length(MyComparison)){
+
+  MyColNumber<-which(colnames(fdata)==paste("Pvalue",MyComparison[i]))
+
+    n<-if(ThreasholdType=="Pvalue"){0}else{1}
+
+    #filter significative proteins
+    if(params$HMsignifparams$ShowApDisapeared==TRUE){
+      MyListeProt<-(fdata()[,(MyColNumber()+n)]<SignifThreashold
+                    & (fdata()[,(MyColNumber()+2)]<(-log2(FCThreashold ))
+                       |fdata()[,(MyColNumber()+2)]>log2(FCThreashold))
+                    )|(
+                      str_detect(string=fdata()[,(MyColNumber()-1)],pattern="peared")==TRUE)
+    }else{
+      MyListeProt<-(fdata()[,(MyColNumber()+n)]<SignifThreashold
+                    & (fdata()[,(MyColNumber()+2)]<(-log2(FCThreashold ))
+                       |fdata()[,(MyColNumber()+2)]>log2(FCThreashold)))
+    }
+
+    #select columns of the comparison
+    MyListX<-which(phenodata$Condition == str_split(MyComparison[i],"/")[[1]][1])
+    MyListY<-which(phenodata$Condition == str_split(MyComparison[i],"/")[[1]][2])
+
+    #filter significative proteins
+    Genes<-fdata[which(MyListeProt==TRUE),c(5,2)]#"Genes","Protein.Group"
+    Genes[is.na(Genes$Genes),"Genes"]<-Genes[is.na(Genes$Genes),2]#"Protein.Group"
+    Genes<-Genes$Genes
+
+    MyListeProt<-fdata[which(MyListeProt==TRUE),"RowNamesfdata"]
+    MyListeProt<-data.frame(x1=MyListeProt,x2=MyListeProt)
+
+    DataToShow<-cbind(edata,RowNamesedata=row.names(edata))
+    DataToShow<-merge(DataToShow,MyListeProt,by.x="RowNamesedata",by.y="x1",all=FALSE)
+    DataToShow<-DataToShow %>% select(-c('RowNamesedata','x2'))
+
+    DataToShow<-DataToShow[,c(MyListX,MyListY)]
+
+    if(nrow(MyListeProt)>1){
+      # heights<-if(nrow(MyListeProt)>40){c(heights,40)}else{c(heights,nrow(MyListeProt))}
+
+      #Z-score
+      MyZscore<-t(apply(DataToShow,1,scale))
+      colnames(MyZscore)<-colnames(DataToShow)
+      rownames(MyZscore)<-Genes
+
+      hmcol<- colorRampPalette(c(params$HMsignifparams$LowColorSignif,params$HMsignifparams$MiddleColorSignif,params$HMsignifparams$HighColorSignif))(100)
+      hmcol<-c(params$HMsignifparams$LowColorSignif,hmcol,params$HMsignifparams$HighColorSignif)
+
+      MyBreaks<-seq(from=-2,to=2,length.out=100)
+      MinBreaks<-if(min(MyZscore,na.rm=TRUE)<(-2)){min(MyZscore,na.rm=TRUE)}else{-2.0001}
+      MaxBreaks<-if(max(MyZscore,na.rm=TRUE)>2){max(MyZscore,na.rm=TRUE)}else{2.0001}
+      MyBreaks<-c(MinBreaks,MyBreaks,MaxBreaks)
+
+      MyConditions<-data.frame(Conditions=phenodata$Condition[c(MyListX,MyListY)],row.names=colnames(MyZscore))
+
+      MycolorCond<-phenodata[c(MyListX[1],MyListY[1]),c(2,3)]
+      x<-MycolorCond[,2]
+      names(x) <- MycolorCond[,1]
+      MycolorCond<-list(x)
+      names(MycolorCond)<-"Conditions"
+      
+      
+      # cor_matrix <- cor(MyZscore, use = "pairwise.complete.obs", method = "pearson")
+      # dist_matrix <- as.dist(1 - cor_matrix)
+      # dist_matrix[is.na(dist_matrix)]<-2
+      # hc_cols <- hclust(dist_matrix,method = "complete")
+      dist_matrix<-dist(t(MyZscore))
+      dist_matrix[is.na(dist_matrix)]<-max(dist_matrix,na.rm=TRUE)
+      hc_cols<-hclust(dist_matrix,method="complete")
+      
+      cor_matrix <- cor(t(MyZscore), use = "pairwise.complete.obs", method = "pearson")
+      dist_matrix <- as.dist(1 - cor_matrix)
+      dist_matrix[is.na(dist_matrix)]<-2
+      hc_rows <- hclust(dist_matrix,method = "complete")
+      
+
+      p[[i]]<-ComplexHeatmap::pheatmap(MyZscore,
+               cluster_rows = hc_rows,
+               cluster_cols = hc_cols,
+               color=hmcol,
+               breaks=MyBreaks,
+               legend_breaks=c(if(MinBreaks==-2.0001){-2}else{c(round(MinBreaks,1),-2)},
+                               if(MaxBreaks==2.0001){2}else{c(2,round(MaxBreaks,1))}),
+               annotation_col = MyConditions,
+               annotation_colors=MycolorCond,
+               na_col = "grey",
+               show_rownames=nrow(MyZscore)<=40,#params$HMsignifparams$ShowGeneName
+               show_colnames=TRUE,
+               cellheight = if(nrow(MyListeProt)<=40){9}else{40*9/nrow(MyListeProt)},
+               annotation_names_col = FALSE,
+               annotation_names_row =  FALSE,
+               main = paste0("Differential proteins ",
+                             MyComparison[i],
+                             " (",ThreasholdType,SignifThreashold ,if(FCThreashold!=1){paste0(", FC>",FCThreashold)}else{""},
+                             ")"
+               ),
+               border_color = NA,
+               angle_col="90"
+      )
+
+    }else{
+      p[[i]]<-paste("Not enough proteins to calculate a heatmap for comparison",MyComparison[i])
+    }
+}
+
+```
+  
+  <br>
+```{r exportHeatmaps,results=FALSE,fig.height=7, eval=MyStat, fig.show = 'asis'}
+
+for (i in 1:length(p)){
+    # plot.new()
+    print(p[[i]])
+    # cat("  \n\n")
+}
+
+```
+
+## 3.6 Heatmap Z-score(LFQ) Anova  
+Anova were calculated on proteins with at least 70% of valid values in at least one condition and at least 3 valid values in an other one.   
+
+```{r Anova,fig.height=7, results='asis', eval=MyStat}
+MyListeProtAnova<-params$MyListeProtAnova
+if(length(which(MyListeProtAnova==TRUE)>1)){
+  params$HMAnova
+}
+
+
+```
+  
+**`r if(MyStat==TRUE){length(which(MyListeProtAnova==TRUE))}`**/**`r if(MyStat==TRUE){length(MyListeProtAnova)}`** Anova significant proteins.    
+
+
+
+```{r PeptideCount,results=FALSE}
+
+
+if(MySoft=="DIANN"){
+  MyRegEx<-params$MyRegEx
+  
+  #import peptides data
+  Pepdata<-fread(paste0(dirname(MyFile),"/report.pr_matrix.tsv"),sep="\t",header=TRUE)
+  Pepdata<-as.data.frame(Pepdata)
+
+  #extract sample name
+  x<-colnames(Pepdata)[11:ncol(Pepdata)]
+  x<-str_extract(string=x,pattern=".*\\\\(.*)\\.d$",group=1)
+  x<-str_extract(string=x,pattern=MyRegEx,group=1)
+  colnames(Pepdata)[11:ncol(Pepdata)]<-x
+
+  #Count peptide number
+  x<-Pepdata[,c("Protein.Group","Precursor.Id")]
+  x<-cbind(x,Pepdata[,11:ncol(Pepdata)])
+  x<-melt(x,
+          id.vars=c("Protein.Group","Precursor.Id"),
+          measured.vars=colnames(Pepdata)[3:ncol(Pepdata)],
+          na.rm = TRUE)
+  x<-dcast(x, Protein.Group ~ variable,value.var="value",fun.aggregate=length)
+  colnames(x)[2:ncol(x)]<-paste("Peptides",colnames(x)[2:ncol(x)])
+  PepCount<-x
+  
+  Pepdata<-params$Pepdata
+    
+}else{
+  
+  Pepdata<-params$Pepdata
+  
+  #Count peptide number
+  x<-fread(MyFile)
+  x<-as.data.frame(x)
+
+  x<-x[,c(1,which(str_detect(colnames(x),"Peptides ")))]
+  PepCount<-x
+}
+
+#Reorder PepCount
+
+  MyOrder<-colnames(edata)
+  PepCount<-as.data.frame(PepCount)
+  x<-as.data.frame(PepCount[,1])
+  colnames(x)<-"Protein.Group"
+  for(i in 1:length(MyOrder)){
+      x<-cbind(x, PepCount[,which(colnames(PepCount)==paste("Peptides",MyOrder[i]))] )
+      colnames(x)[i+1]<-paste("Peptides",MyOrder[i])
+  }
+  PepCount<-x
+
+#Add to fdata
+  fdata<-left_join(fdata, PepCount, by = join_by(Protein.Group == Protein.Group))
+
+```
+
+```{r ExportTable}
+#Merge df end fdata
+  df$RowNamedf<-row.names(df)
+  MyNcol<-ncol(df)
+  df<-merge(df,fdata,by.x="RowNamedf",by.y="RowNamesfdata",all.x=TRUE)
+  if(MyStat==TRUE){
+    if(params$MyImputeMeth[1]=="YES"){
+      x<-edata
+      colnames(x)<-paste("imputed",colnames(x))
+      x$RowNameX<-row.names(x)
+      df<-merge(df,x,by.x="RowNamedf",by.y="RowNameX",all.x=TRUE)
+    }
+  }  
+  DataToExport<-df[,c(2:MyNcol,(MyNcol+8):ncol(df))] 
+  colnames(DataToExport)[1:6]<-gsub(pattern=".x",replacement="",x=colnames(DataToExport)[1:6])
+  
+
+  
+  
+#Export
+if(MyStat==TRUE){
+  StudWelch<-params$Ttestparams$StudWelch
+  if(MyPaired==TRUE){MyPaired<-".Paired"}else{MyPaired<-""}
+  if(ThreasholdType=="Pvalue"){PQ<-"Pval"}else{PQ<-"Qval"}
+  MySignifVal<-paste0(SignifThreashold*100,"pc")
+  if(FCThreashold==1){MySignifFC<-""}else{MySignifFC<-paste0("_FC",FCThreashold)}
+  MyAlternative<-str_split(params$Ttestparams$TypeTtest," ")[[1]][1]
+  if(params$MyImputeMeth[1]=="YES"){MyImputeMeth<-paste0(params$MyImputeMeth[2],"_")}else{MyImputeMeth<-""}
+}else{
+  StudWelch<-""
+  MyPaired<-""
+  PQ<-""
+  MySignifVal<-""
+  MySignifFC<-""
+  MyAlternative<-""
+  MyImputeMeth<-""
+}
+
+MyFileBase<-paste0(dirname(MyFile),"/",ProjectName,"_",MyImputeMeth,StudWelch,MyAlternative,MyPaired,"_",PQ,MySignifVal,MySignifFC)
+
+MyRDS<-list(edata=edata,fdata=fdata,phenodata=phenodata,Pepdata=Pepdata)
+saveRDS(MyRDS, file = paste0(MyFileBase,".rds"))
+write_xlsx(DataToExport,paste0(MyFileBase,".xlsx"))
+write.table(DataToExport,paste0(MyFileBase,".txt"),row.names = FALSE,sep = "\t",quote=FALSE)
+
+
+
+
+
+rm(MyNcol,DataToExport)
+
+```
+  
+# 4. Contributions  
+Samples preparation, LC MS-MS analysis :  
+Proteins identification and quantification using DIANN, Data analysis :  
+Expertise, strategy and Experimental design : 
